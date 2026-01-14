@@ -13,7 +13,7 @@ export interface FIR {
   status: "Registered" | "Under Investigation" | "Evidence Collection" | "Pending" | "Closed"
   assignedOfficer: string
   bnsSection?: string
-  bnsSections?: string[] // Array of suggested BNS sections
+  bnsSections?: string[] // Array of suggested BNS sections in "Section 376 - Rape" format
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -69,6 +69,7 @@ const mockFIRs: FIR[] = [
     status: "Under Investigation",
     assignedOfficer: "PO001",
     bnsSection: "Section 303 - Theft",
+    bnsSections: ["Section 303 - Theft", "Section 307 - Attempt to commit theft"],
     createdBy: "PO001",
     createdAt: "2024-01-15T10:30:00Z",
     updatedAt: "2024-01-15T10:30:00Z",
@@ -88,6 +89,7 @@ const mockFIRs: FIR[] = [
     status: "Evidence Collection",
     assignedOfficer: "PO001",
     bnsSection: "Section 115 - Voluntarily causing hurt",
+    bnsSections: ["Section 115 - Voluntarily causing hurt"],
     createdBy: "SI001",
     createdAt: "2024-01-14T14:15:00Z",
     updatedAt: "2024-01-14T14:15:00Z",
@@ -107,6 +109,7 @@ const mockFIRs: FIR[] = [
     status: "Pending",
     assignedOfficer: "PO001",
     bnsSection: "Section 318 - Cheating",
+    bnsSections: ["Section 318 - Cheating"],
     createdBy: "PO001",
     createdAt: "2024-01-13T16:45:00Z",
     updatedAt: "2024-01-13T16:45:00Z",
@@ -116,9 +119,10 @@ const mockFIRs: FIR[] = [
 const firStorage: FIR[] = [...mockFIRs]
 
 export const getAllFIRs = async (): Promise<FIR[]> => {
-  // Simulate API delay
   await new Promise((resolve) => setTimeout(resolve, 500))
-  return [...firStorage].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  return [...firStorage].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )
 }
 
 export const getFIRById = async (id: string): Promise<FIR | null> => {
@@ -126,7 +130,11 @@ export const getFIRById = async (id: string): Promise<FIR | null> => {
   return firStorage.find((fir) => fir.id === id) || null
 }
 
-export const createFIR = async (formData: FIRFormData, createdBy: string, bnsSections?: string[]): Promise<FIR> => {
+export const createFIR = async (
+  formData: FIRFormData,
+  createdBy: string,
+  bnsSections?: string[]
+): Promise<FIR> => {
   await new Promise((resolve) => setTimeout(resolve, 1000))
 
   const newFIR: FIR = {
@@ -137,7 +145,7 @@ export const createFIR = async (formData: FIRFormData, createdBy: string, bnsSec
     status: "Registered",
     assignedOfficer: createdBy,
     bnsSection: bnsSections?.[0], // Primary section
-    bnsSections: bnsSections, // All suggested sections
+    bnsSections: bnsSections?.map((s) => s), // Ensure array of strings
     createdBy,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -147,7 +155,11 @@ export const createFIR = async (formData: FIRFormData, createdBy: string, bnsSec
   return newFIR
 }
 
-export const updateFIR = async (id: string, formData: FIRFormData, bnsSections?: string[]): Promise<FIR | null> => {
+export const updateFIR = async (
+  id: string,
+  formData: FIRFormData,
+  bnsSections?: string[]
+): Promise<FIR | null> => {
   await new Promise((resolve) => setTimeout(resolve, 500))
 
   const firIndex = firStorage.findIndex((fir) => fir.id === id)
@@ -157,14 +169,17 @@ export const updateFIR = async (id: string, formData: FIRFormData, bnsSections?:
     ...firStorage[firIndex],
     ...formData,
     bnsSection: bnsSections?.[0],
-    bnsSections: bnsSections,
+    bnsSections: bnsSections?.map((s) => s),
     updatedAt: new Date().toISOString(),
   }
 
   return firStorage[firIndex]
 }
 
-export const updateFIRStatus = async (id: string, status: FIR["status"]): Promise<FIR | null> => {
+export const updateFIRStatus = async (
+  id: string,
+  status: FIR["status"]
+): Promise<FIR | null> => {
   await new Promise((resolve) => setTimeout(resolve, 500))
 
   const firIndex = firStorage.findIndex((fir) => fir.id === id)
@@ -191,7 +206,7 @@ export const searchFIRs = async (query: string): Promise<FIR[]> => {
       fir.complainantName.toLowerCase().includes(lowercaseQuery) ||
       fir.incidentType.toLowerCase().includes(lowercaseQuery) ||
       fir.incidentLocation.toLowerCase().includes(lowercaseQuery) ||
-      fir.description.toLowerCase().includes(lowercaseQuery),
+      fir.description.toLowerCase().includes(lowercaseQuery)
   )
 }
 
@@ -207,5 +222,8 @@ export const getIncidentTypes = () => [
   "Traffic Violation",
   "Vandalism",
   "Missing Person",
+  "Rape",
+  "Kidnap",
+  "Child Marriage",
   "Other",
 ]

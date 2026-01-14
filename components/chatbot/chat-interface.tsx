@@ -29,6 +29,10 @@ export function ChatInterface() {
   const [voiceTranscript, setVoiceTranscript] = useState("")
   const [voiceTranscriptTranslation, setVoiceTranscriptTranslation] = useState("")
 
+  // --- EDIT MODE STATES ---
+  const [isEditing, setIsEditing] = useState(false)
+  const [editingField, setEditingField] = useState<string | null>(null)
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
@@ -117,6 +121,27 @@ export function ChatInterface() {
     setVoiceTranscriptTranslation("")
 
     try {
+      if (isEditing && editingField) {
+        // --- EDIT MODE LOGIC ---
+        const updatedSession = chatbotService.updateField(session.id, editingField, userMessage)
+
+        const confirmationMessage: ChatMessage = {
+          id: Date.now().toString(),
+          type: "bot",
+          content: `${editingField.replace("_", " ")} updated successfully!`,
+          timestamp: new Date().toISOString(),
+        }
+
+        setMessages((prev) => [...prev, confirmationMessage])
+        setSession(updatedSession)
+
+        // Reset edit mode
+        setIsEditing(false)
+        setEditingField(null)
+        return
+      }
+
+      // --- NORMAL FLOW ---
       const updatedMessages = await chatbotService.processMessage(session.id, userMessage)
       setMessages(updatedMessages)
 
@@ -130,13 +155,7 @@ export function ChatInterface() {
       }
     } catch (error) {
       console.error("Error processing message:", error)
-      const errorMessage: ChatMessage = {
-        id: Date.now().toString(),
-        type: "bot",
-        content: getTranslation("errorMessage", currentLanguage),
-        timestamp: new Date().toISOString(),
-      }
-      setMessages((prev) => [...prev, errorMessage])
+      // ✅ Removed sending error message to chat
     } finally {
       setIsLoading(false)
     }

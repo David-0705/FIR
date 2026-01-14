@@ -1,45 +1,8 @@
-export interface ChatMessage {
-  id: string
-  type: "user" | "bot"
-  content: string
-  timestamp: string
-  metadata?: {
-    step?: string
-    data?: any
-  }
-}
-
-export interface ChatSession {
-  id: string
-  messages: ChatMessage[]
-  currentStep: string
-  collectedData: Partial<ComplaintData>
-  isCompleted: boolean
-  createdFIRId?: string
-  createdAt: string
-}
-
-export interface ComplaintData {
-  complainantName: string
-  complainantPhone: string
-  complainantAddress: string
-  incidentType: string
-  incidentLocation: string
-  incidentDateTime: string
-  description: string
-  priority: "Low" | "Medium" | "High" | "Critical"
-  fatherHusbandName: string
-  dateOfBirth: string
-  nationality: string
-  occupation: string
-  policeStation: string
-  district: string
-  directionDistance: string
-  beatNumber: string
-  informationType: "Written" | "Oral"
-  reasonForDelay: string
-  propertiesInvolved: string
-}
+import { createFIR } from "./fir"
+import { LANGUAGES, LanguageCode, getTranslation } from "./languages"
+import { ChatMessage, ChatSession, ComplaintData } from "./types"
+import { bnsSuggestionService } from "./bns-suggestions"
+import { geocodeAddressOSM, findNearestPoliceStationOSM } from "./location"
 
 const CHAT_STEPS = {
   GREETING: "greeting",
@@ -50,19 +13,29 @@ const CHAT_STEPS = {
   DOB: "dob",
   NATIONALITY: "nationality",
   OCCUPATION: "occupation",
+
   DISTRICT: "district",
-  POLICE_STATION: "police_station",
-  BEAT_NUMBER: "beat_number",
-  DIRECTION_DISTANCE: "direction_distance",
-  INCIDENT_TYPE: "incident_type",
-  LOCATION: "location",
-  DATE_TIME: "date_time",
+  YEAR: "year",
+  FIR_NUMBER: "fir_number",
   INFORMATION_TYPE: "information_type",
+  DIRECTION_FROM_PS: "direction_from_ps",
+  BEAT_NUMBER: "beat_number",
+  DELAY_REASON: "delay_reason",
+  STOLEN_PROPERTIES: "stolen_properties",
+
+  LOCATION: "location",
+  CONFIRM_POLICE_STATION: "confirm_police_station",
+  EDIT_POLICE_STATION: "edit_police_station",
+
+  INCIDENT_TYPE: "incident_type",
+  DATE_TIME: "date_time",
   DESCRIPTION: "description",
-  REASON_FOR_DELAY: "reason_for_delay",
-  PROPERTIES_INVOLVED: "properties_involved",
+  BNS_SUGGESTION: "bns_suggestion",
+
   PRIORITY: "priority",
-  CONFIRMATION: "confirmation",
+  EDIT_CONFIRMATION: "edit_confirmation",
+  EDIT_SELECTION: "edit_selection",
+
   COMPLETED: "completed",
 }
 
@@ -78,383 +51,338 @@ const INCIDENT_TYPES = [
   "Traffic Violation",
   "Vandalism",
   "Missing Person",
+  "Rape",
+  "Kidnap",
+  "Child Marriage",
   "Other",
 ]
-
-import { createFIR } from "./fir"
 
 export class ChatbotService {
   private sessions: Map<string, ChatSession> = new Map()
 
   createSession(): ChatSession {
-    const sessionId = Date.now().toString()
+    const id = Date.now().toString()
     const session: ChatSession = {
-      id: sessionId,
+      id,
       messages: [],
       currentStep: CHAT_STEPS.GREETING,
       collectedData: {},
       isCompleted: false,
       createdAt: new Date().toISOString(),
+      language: undefined,
     }
 
-    this.sessions.set(sessionId, session)
-    this.addBotMessage(session, this.getGreetingMessage())
+    this.sessions.set(id, session)
+
+    this.addBotMessage(
+      session,
+      "Please select your preferred language:\n1. English\n2. हिंदी (Hindi)\n3. मराठी (Marathi)"
+    )
+
+   
 
     return session
   }
-
+   public getCompletedComplaints(): ChatSession[] {
+      return Array.from(this.sessions.values()).filter(session => session.isCompleted)
+    }
   async processMessage(sessionId: string, userMessage: string): Promise<ChatMessage[]> {
     const session = this.sessions.get(sessionId)
     if (!session) throw new Error("Session not found")
 
     this.addUserMessage(session, userMessage)
-    const botResponse = await this.processStep(session, userMessage)
-    this.addBotMessage(session, botResponse)
+    const reply = await this.processStep(session, userMessage.trim())
+    this.addBotMessage(session, reply)
 
     return session.messages
   }
 
   private async processStep(session: ChatSession, userInput: string): Promise<string> {
-    const step = session.currentStep
-    const data = session.collectedData
+    const data = session.collectedData as ComplaintData
+    const lang = session.language
 
-    switch (step) {
-      case CHAT_STEPS.GREETING:
-        session.currentStep = CHAT_STEPS.NAME
-        return "Hello! I'm your AI Assistant for filing police complaints. I'll help you register a First Information Report (FIR) by collecting all necessary details.\n\nThis process will take about 10-15 minutes. Let's start with your personal information.\n\nWhat is your full name?"
+    // 🌐 Language selection
+    if (!lang) {
+      if (userInput === "1") session.language = LANGUAGES.ENGLISH
+      else if (userInput === "2") session.language = LANGUAGES.HINDI
+      else if (userInput === "3") session.language = LANGUAGES.MARATHI
+      else return "Please select 1, 2 or 3"
 
+      session.currentStep = CHAT_STEPS.NAME
+      return getTranslation("namePrompt", session.language)
+    }
+
+    switch (session.currentStep) {
+      // ----------------- BASIC INFO -----------------
       case CHAT_STEPS.NAME:
-        if (userInput.trim().length < 2) {
-          return "Please provide your full name (at least 2 characters)."
-        }
-        ;(data as any).complainantName = userInput.trim()
+        if (!userInput || userInput.length < 2) return getTranslation("invalidInput", lang)
+        data.complainantName = userInput
         session.currentStep = CHAT_STEPS.PHONE
-        return `Thank you, ${data.complainantName}. What is your phone number? (Please provide a 10-digit number or with country code)`
+        return getTranslation("phonePrompt", lang, { name: data.complainantName })
 
       case CHAT_STEPS.PHONE:
-        const phoneRegex = /^[+]?[0-9\-\s()]{10,15}$/
-        if (!phoneRegex.test(userInput.trim())) {
-          return "Please provide a valid phone number (10-15 digits)."
-        }
-        ;(data as any).complainantPhone = userInput.trim()
+        const phoneRegex = /^(\+?\d{10,12})$/
+        if (!phoneRegex.test(userInput)) return getTranslation("invalidInput", lang)
+        data.complainantPhone = userInput
         session.currentStep = CHAT_STEPS.ADDRESS
-        return "What is your complete address? (Include street, area, city, state, and zip code)"
+        return getTranslation("addressPrompt", lang)
 
       case CHAT_STEPS.ADDRESS:
-        if (userInput.trim().length < 10) {
-          return "Please provide your complete address (at least 10 characters)."
-        }
-        ;(data as any).complainantAddress = userInput.trim()
+        if (!userInput || userInput.length < 5) return getTranslation("invalidInput", lang)
+        data.complainantAddress = userInput
         session.currentStep = CHAT_STEPS.FATHER_HUSBAND
-        return "What is your father's or husband's name? (If not applicable, you can type 'N/A')"
+        return getTranslation("fatherHusbandPrompt", lang)
 
       case CHAT_STEPS.FATHER_HUSBAND:
-        ;(data as any).fatherHusbandName = userInput.trim() || "N/A"
+        data.fatherHusbandName = userInput || "N/A"
         session.currentStep = CHAT_STEPS.DOB
-        return "What is your date of birth? (Format: YYYY-MM-DD or you can type 'N/A')"
+        return getTranslation("dobPrompt", lang)
 
       case CHAT_STEPS.DOB:
-        ;(data as any).dateOfBirth = userInput.trim() || "N/A"
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(userInput) && userInput.toUpperCase() !== "N/A")
+          return getTranslation("invalidInput", lang)
+        data.dateOfBirth = userInput
         session.currentStep = CHAT_STEPS.NATIONALITY
-        return "What is your nationality?"
+        return getTranslation("nationalityPrompt", lang)
 
       case CHAT_STEPS.NATIONALITY:
-        ;(data as any).nationality = userInput.trim() || "Indian"
+        if (!userInput || userInput.length < 2) return getTranslation("invalidInput", lang)
+        data.nationality = userInput
         session.currentStep = CHAT_STEPS.OCCUPATION
-        return "What is your occupation?"
+        return getTranslation("occupationPrompt", lang)
 
       case CHAT_STEPS.OCCUPATION:
-        ;(data as any).occupation = userInput.trim() || "Not specified"
+        if (!userInput || userInput.length < 2) return getTranslation("invalidInput", lang)
+        data.occupation = userInput
         session.currentStep = CHAT_STEPS.DISTRICT
-        return "Now let's collect incident location details. What is the district where this incident occurred?"
+        return "Enter District:"
 
+      // ----------------- FIR INFO -----------------
       case CHAT_STEPS.DISTRICT:
-        ;(data as any).district = userInput.trim()
-        session.currentStep = CHAT_STEPS.POLICE_STATION
-        return "Which Police Station has jurisdiction over this area? (Enter the police station name)"
+        data.district = userInput || ""
+        session.currentStep = CHAT_STEPS.YEAR
+        return "Enter FIR Year:"
 
-      case CHAT_STEPS.POLICE_STATION:
-        ;(data as any).policeStation = userInput.trim()
-        session.currentStep = CHAT_STEPS.BEAT_NUMBER
-        return "What is the beat number? (If you don't know, type 'Unknown')"
+      case CHAT_STEPS.YEAR:
+        data.year = userInput || new Date().getFullYear().toString()
+        session.currentStep = CHAT_STEPS.FIR_NUMBER
+        return "Enter FIR Number:"
 
-      case CHAT_STEPS.BEAT_NUMBER:
-        ;(data as any).beatNumber = userInput.trim() || "Unknown"
-        session.currentStep = CHAT_STEPS.DIRECTION_DISTANCE
-        return "What is the direction and distance from the police station? (e.g., '2 km North' or 'Unknown')"
-
-      case CHAT_STEPS.DIRECTION_DISTANCE:
-        ;(data as any).directionDistance = userInput.trim() || "Unknown"
-        session.currentStep = CHAT_STEPS.INCIDENT_TYPE
-        return `What type of incident would you like to report?\n\nAvailable options:\n${INCIDENT_TYPES.map((type, index) => `${index + 1}. ${type}`).join("\n")}\n\nYou can type the number or the incident type.`
-
-      case CHAT_STEPS.INCIDENT_TYPE:
-        const incidentType = this.parseIncidentType(userInput)
-        if (!incidentType) {
-          return `Please select a valid incident type:\n${INCIDENT_TYPES.map((type, index) => `${index + 1}. ${type}`).join("\n")}`
-        }
-        ;(data as any).incidentType = incidentType
-        session.currentStep = CHAT_STEPS.LOCATION
-        return "Where did this incident occur? Please provide the specific location details."
-
-      case CHAT_STEPS.LOCATION:
-        if (userInput.trim().length < 5) {
-          return "Please provide more details about the incident location."
-        }
-        ;(data as any).incidentLocation = userInput.trim()
-        session.currentStep = CHAT_STEPS.DATE_TIME
-        return "When did this incident occur? Please provide the date and time (e.g., 'January 15, 2024 at 3:30 PM' or 'yesterday evening')."
-
-      case CHAT_STEPS.DATE_TIME:
-        const dateTime = this.parseDateTime(userInput)
-        if (!dateTime) {
-          return "Please provide a valid date and time."
-        }
-        ;(data as any).incidentDateTime = dateTime
+      case CHAT_STEPS.FIR_NUMBER:
+        data.firNumber = userInput || ""
         session.currentStep = CHAT_STEPS.INFORMATION_TYPE
-        return "Is this information being reported in written form or orally?\n\n1. Written\n2. Oral\n\nPlease type 1 or 2."
+        return "Is this Written or Oral Information?"
 
       case CHAT_STEPS.INFORMATION_TYPE:
-        const infoType = userInput.toLowerCase().includes("oral") || userInput.trim() === "2" ? "Oral" : "Written"
-        ;(data as any).informationType = infoType
+        data.informationType = userInput || "Written"
+        session.currentStep = CHAT_STEPS.DIRECTION_FROM_PS
+        return "Direction and Distance from Police Station:"
+
+      case CHAT_STEPS.DIRECTION_FROM_PS:
+        data.directionFromPS = userInput || ""
+        session.currentStep = CHAT_STEPS.BEAT_NUMBER
+        return "Beat Number (if known):"
+
+      case CHAT_STEPS.BEAT_NUMBER:
+        data.beatNumber = userInput || ""
+        session.currentStep = CHAT_STEPS.LOCATION
+        return "Enter Incident Location:"
+
+      // ----------------- INCIDENT LOCATION -----------------
+      case CHAT_STEPS.LOCATION:
+        if (!userInput || userInput.length < 3) return getTranslation("invalidInput", lang)
+        data.incidentLocation = userInput
+
+        try {
+          const geo = await geocodeAddressOSM(userInput)
+          if (geo) {
+            const station = await findNearestPoliceStationOSM(geo.lat, geo.lon)
+            if (station) {
+              data.policeStation = station.name
+              data.autoDetectedPoliceStation = station.name
+              data.policeStationLocation = `${station.lat},${station.lon}`
+              if (station.district) {
+                data.district = data.district || station.district
+                data.autoDetectedDistrict = station.district
+              }
+            }
+          }
+        } catch (err) {
+          console.error("OSM error:", err)
+        }
+
+        session.currentStep = CHAT_STEPS.CONFIRM_POLICE_STATION
+        return `🚓 Police Station detected: ${data.policeStation || "Not found"}
+🏢 District: ${data.district || "N/A"}
+
+Do you want to edit Police Station?
+1. Yes
+2. No`
+
+      case CHAT_STEPS.CONFIRM_POLICE_STATION:
+        if (userInput === "1") {
+          session.currentStep = CHAT_STEPS.EDIT_POLICE_STATION
+          return "Please enter Police Station name:"
+        }
+        session.currentStep = CHAT_STEPS.INCIDENT_TYPE
+        return INCIDENT_TYPES.map((t, i) => `${i + 1}. ${t}`).join("\n")
+
+      case CHAT_STEPS.EDIT_POLICE_STATION:
+        if (!userInput || userInput.length < 3) return getTranslation("invalidInput", lang)
+        data.policeStation = userInput
+        data.policeStationEdited = true
+        session.currentStep = CHAT_STEPS.INCIDENT_TYPE
+        return INCIDENT_TYPES.map((t, i) => `${i + 1}. ${t}`).join("\n")
+
+      // ----------------- INCIDENT -----------------
+      case CHAT_STEPS.INCIDENT_TYPE:
+        const idx = parseInt(userInput) - 1
+        if (isNaN(idx) || idx < 0 || idx >= INCIDENT_TYPES.length)
+          return getTranslation("invalidInput", lang)
+        data.incidentType = INCIDENT_TYPES[idx]
+        session.currentStep = CHAT_STEPS.DATE_TIME
+        return getTranslation("dateTimePrompt", lang)
+
+      case CHAT_STEPS.DATE_TIME:
+        if (!userInput || userInput.length < 5) return getTranslation("invalidInput", lang)
+        data.incidentDateTime = userInput
         session.currentStep = CHAT_STEPS.DESCRIPTION
-        return "Please provide a detailed description of what happened. Include as much relevant information as possible. (At least 20 characters)"
+        return getTranslation("descriptionPrompt", lang)
 
       case CHAT_STEPS.DESCRIPTION:
-        if (userInput.trim().length < 20) {
-          return "Please provide a more detailed description (at least 20 characters) of what happened."
-        }
-        ;(data as any).description = userInput.trim()
-        session.currentStep = CHAT_STEPS.REASON_FOR_DELAY
-        return "Was there any delay in reporting this incident? If yes, please explain the reason. (If no delay, type 'No delay')"
+        if (!userInput || userInput.length < 20) return getTranslation("invalidInput", lang)
+        data.description = userInput
+        session.currentStep = CHAT_STEPS.BNS_SUGGESTION
 
-      case CHAT_STEPS.REASON_FOR_DELAY:
-        ;(data as any).reasonForDelay = userInput.trim() || "No delay"
-        session.currentStep = CHAT_STEPS.PROPERTIES_INVOLVED
-        return "Were any properties involved or stolen? If yes, please list them. (If no, type 'None')"
+        const suggestions = await bnsSuggestionService.suggestBNSSections(
+          data.incidentType,
+          userInput,
+          data.incidentLocation,
+          5
+        )
+        data.lastBnsSuggestions = suggestions
 
-      case CHAT_STEPS.PROPERTIES_INVOLVED:
-        ;(data as any).propertiesInvolved = userInput.trim() || "None"
+        return (
+          "Applicable BNS Sections:\n\n" +
+          suggestions
+            .map((s, i) => `${i + 1}. ${s.section.section_number}: ${s.section.title} (${s.confidence}%)`)
+            .join("\n") +
+          "\n\nSelect section numbers (comma separated)"
+        )
+
+      case CHAT_STEPS.BNS_SUGGESTION:
+  const selectedSections = userInput
+    .split(",")
+    .map(i => parseInt(i.trim()))
+    .filter(i => !isNaN(i) && i >= 1 && i <= (data.lastBnsSuggestions?.length || 0))
+    .map(i => {
+      const s = data.lastBnsSuggestions![i - 1].section
+      return `Section ${s.section_number} - ${s.title}` // Convert object to string
+    })
+
+  if (selectedSections.length === 0) return getTranslation("invalidInput", lang)
+
+  data.bnsSections = selectedSections
+  data.bnsSection = selectedSections[0] // Optional: store primary section as string
+  session.currentStep = CHAT_STEPS.DELAY_REASON
+  return "Reason for delay in reporting (if any):"
+
+
+      case CHAT_STEPS.DELAY_REASON:
+        data.delayReason = userInput || ""
+        session.currentStep = CHAT_STEPS.STOLEN_PROPERTIES
+        return "List any properties stolen or involved (if any):"
+
+      case CHAT_STEPS.STOLEN_PROPERTIES:
+        data.stolenProperties = userInput || ""
         session.currentStep = CHAT_STEPS.PRIORITY
-        return "How would you rate the priority of this incident?\n\n1. Low - Minor issues, no immediate danger\n2. Medium - Moderate concern, needs attention\n3. High - Serious matter, requires prompt action\n4. Critical - Emergency, immediate response needed\n\nPlease type the number or priority level."
+        return getTranslation("priorityPrompt", lang)
 
+      // ----------------- PRIORITY & EDIT -----------------
       case CHAT_STEPS.PRIORITY:
-        const priority = this.parsePriority(userInput)
-        if (!priority) {
-          return "Please select a valid priority:\n1. Low\n2. Medium\n3. High\n4. Critical"
+        if (!["1", "2", "3", "4"].includes(userInput)) return getTranslation("invalidInput", lang)
+        data.priority = userInput
+        session.currentStep = CHAT_STEPS.EDIT_CONFIRMATION
+        return this.generateConfirmationMessage(data) + "\n\nEdit anything?\n1. Yes\n2. No"
+
+      case CHAT_STEPS.EDIT_CONFIRMATION:
+        if (userInput === "1") {
+          session.currentStep = CHAT_STEPS.EDIT_SELECTION
+          return `Edit:
+1. Name
+2. Phone
+3. Address
+4. Police Station
+5. Incident Type
+6. Description
+7. Delay Reason
+8. Stolen Properties`
         }
-        ;(data as any).priority = priority
-        session.currentStep = CHAT_STEPS.CONFIRMATION
-        return this.generateConfirmationMessage(data as ComplaintData)
 
-      case CHAT_STEPS.CONFIRMATION:
-        if (userInput.toLowerCase().includes("yes") || userInput.toLowerCase().includes("confirm")) {
-          try {
-            const bnsSuggestions = await this.suggestBNSSection(data as ComplaintData)
-            const bnsArray = bnsSuggestions.length > 0 ? bnsSuggestions.map((s) => s.section) : []
+        const fir = await createFIR(data, "CHATBOT001", data.bnsSections || [])
+        session.isCompleted = true
+        session.createdFIRId = fir.id
+        session.currentStep = CHAT_STEPS.COMPLETED
+        return getTranslation("successMessage", lang)
 
-            const badgeNumber = "CHATBOT001"
-
-            const newFIR = await createFIR(
-              {
-                complainantName: data.complainantName || "",
-                complainantPhone: data.complainantPhone || "",
-                complainantAddress: data.complainantAddress || "",
-                incidentType: data.incidentType || "",
-                incidentLocation: data.incidentLocation || "",
-                incidentDateTime: data.incidentDateTime || "",
-                description: data.description || "",
-                priority: data.priority || "Medium",
-                fatherHusbandName: data.fatherHusbandName || "N/A",
-                dateOfBirth: data.dateOfBirth || "N/A",
-                nationality: data.nationality || "Indian",
-                occupation: data.occupation || "",
-                policeStation: data.policeStation || "",
-                district: data.district || "",
-                directionDistance: data.directionDistance || "",
-                beatNumber: data.beatNumber || "",
-                informationType: data.informationType || "Written",
-                reasonForDelay: data.reasonForDelay || "",
-                propertiesInvolved: data.propertiesInvolved || "",
-              },
-              badgeNumber,
-              bnsArray,
-            )
-
-            session.currentStep = CHAT_STEPS.COMPLETED
-            session.isCompleted = true
-            session.createdFIRId = newFIR.id
-
-            let response =
-              "✅ Perfect! Your complaint has been recorded and will be processed shortly. A police officer will contact you soon.\n\n"
-            response += `📋 FIR Number: ${newFIR.firNumber}\n`
-            response += `🔗 Reference ID: ${newFIR.id}\n\n`
-
-            if (bnsSuggestions.length > 0) {
-              response += `📜 Applicable BNS Sections:\n`
-              bnsSuggestions.slice(0, 5).forEach((s, i) => {
-                response += `${i + 1}. ${s.section} (${s.confidence}% match)\n`
-              })
-              response += `\n`
-            }
-
-            response +=
-              "You can now download your FIR PDF using the download button at the top. Is there anything else I can help you with?"
-            return response
-          } catch (error) {
-            console.error("Error creating FIR from chatbot:", error)
-            session.currentStep = CHAT_STEPS.COMPLETED
-            session.isCompleted = true
-            return "Your complaint has been recorded successfully! A police officer will contact you soon for further details."
-          }
-        } else if (userInput.toLowerCase().includes("no") || userInput.toLowerCase().includes("edit")) {
-          session.currentStep = CHAT_STEPS.NAME
-          session.collectedData = {}
-          return "No problem! Let's start over. What is your full name?"
-        } else {
-          return "Please type 'yes' to confirm and submit your complaint, or 'no' to start over."
+      case CHAT_STEPS.EDIT_SELECTION:
+        const editMap: Record<string, string> = {
+          "1": CHAT_STEPS.NAME,
+          "2": CHAT_STEPS.PHONE,
+          "3": CHAT_STEPS.ADDRESS,
+          "4": CHAT_STEPS.EDIT_POLICE_STATION,
+          "5": CHAT_STEPS.INCIDENT_TYPE,
+          "6": CHAT_STEPS.DESCRIPTION,
+          "7": CHAT_STEPS.DELAY_REASON,
+          "8": CHAT_STEPS.STOLEN_PROPERTIES,
         }
+        if (!editMap[userInput]) return getTranslation("invalidInput", lang)
+        session.currentStep = editMap[userInput]
+        return "Please re-enter value:"
 
       case CHAT_STEPS.COMPLETED:
-        return "Your complaint has already been submitted. You can download your FIR PDF using the button at the top. Is there anything else I can help you with? You can start a new complaint by typing 'new complaint'."
+        return getTranslation("complaintSubmitted", lang)
 
       default:
-        return "I'm sorry, something went wrong. Let's start over. What is your full name?"
-    }
-  }
-
-  private parseIncidentType(input: string): string | null {
-    const trimmed = input.trim().toLowerCase()
-    const num = Number.parseInt(trimmed)
-    if (num >= 1 && num <= INCIDENT_TYPES.length) {
-      return INCIDENT_TYPES[num - 1]
-    }
-    const match = INCIDENT_TYPES.find(
-      (type) =>
-        type.toLowerCase() === trimmed || type.toLowerCase().includes(trimmed) || trimmed.includes(type.toLowerCase()),
-    )
-    return match || null
-  }
-
-  private parsePriority(input: string): ComplaintData["priority"] | null {
-    const trimmed = input.trim().toLowerCase()
-    if (trimmed === "1" || trimmed.includes("low")) return "Low"
-    if (trimmed === "2" || trimmed.includes("medium")) return "Medium"
-    if (trimmed === "3" || trimmed.includes("high")) return "High"
-    if (trimmed === "4" || trimmed.includes("critical") || trimmed.includes("emergency")) return "Critical"
-    return null
-  }
-
-  private parseDateTime(input: string): string | null {
-    const now = new Date()
-    const trimmed = input.trim().toLowerCase()
-
-    try {
-      if (trimmed.includes("today")) {
-        return now.toISOString()
-      }
-      if (trimmed.includes("yesterday")) {
-        const yesterday = new Date(now)
-        yesterday.setDate(yesterday.getDate() - 1)
-        return yesterday.toISOString()
-      }
-      if (trimmed.includes("morning")) {
-        const morning = new Date(now)
-        morning.setHours(8, 0, 0, 0)
-        return morning.toISOString()
-      }
-      if (trimmed.includes("evening") || trimmed.includes("tonight")) {
-        const evening = new Date(now)
-        evening.setHours(18, 0, 0, 0)
-        return evening.toISOString()
-      }
-
-      const parsed = new Date(input)
-      if (!isNaN(parsed.getTime())) {
-        return parsed.toISOString()
-      }
-
-      return now.toISOString()
-    } catch {
-      return now.toISOString()
+        return getTranslation("invalidInput", lang)
     }
   }
 
   private generateConfirmationMessage(data: ComplaintData): string {
-    return (
-      `Please review your FIR details:\n\n` +
-      `👤 Complainant Name: ${data.complainantName}\n` +
-      `📞 Phone: ${data.complainantPhone}\n` +
-      `📍 Address: ${data.complainantAddress}\n` +
-      `👨‍👩‍👧 Father's/Husband's Name: ${data.fatherHusbandName}\n` +
-      `📅 Date of Birth: ${data.dateOfBirth}\n` +
-      `🌍 Nationality: ${data.nationality}\n` +
-      `💼 Occupation: ${data.occupation}\n\n` +
-      `📍 Location Details:\n` +
-      `District: ${data.district} | PS: ${data.policeStation}\n` +
-      `Beat No: ${data.beatNumber} | Direction: ${data.directionDistance}\n\n` +
-      `🚨 Incident Type: ${data.incidentType}\n` +
-      `📍 Incident Location: ${data.incidentLocation}\n` +
-      `📅 Date/Time: ${new Date(data.incidentDateTime).toLocaleString()}\n` +
-      `📝 Description: ${data.description.substring(0, 100)}...\n` +
-      `⚠️ Priority: ${data.priority}\n` +
-      `📋 Information Type: ${data.informationType}\n\n` +
-      `Is this information correct? Type 'yes' to submit or 'no' to start over.`
-    )
-  }
-
-  private getGreetingMessage(): string {
-    return "Hello! I'm your AI Assistant for filing police complaints. I'll help you register a First Information Report (FIR) by collecting all necessary details.\n\nThis process will take about 10-15 minutes. Are you ready to begin?"
+    return `Confirm FIR Details:
+👤 Name: ${data.complainantName}
+📞 Phone: ${data.complainantPhone}
+🏢 Police Station: ${data.policeStation}
+📍 District: ${data.district || "N/A"}
+📍 Incident Location: ${data.incidentLocation}
+📅 FIR Year: ${data.year || "N/A"}
+📝 FIR Number: ${data.firNumber || "N/A"}
+📰 Information Type: ${data.informationType || "Written"}
+🧭 Direction from PS: ${data.directionFromPS || "N/A"}
+🔢 Beat Number: ${data.beatNumber || "N/A"}
+⚖️ Incident Type: ${data.incidentType}
+⏰ Date & Time: ${data.incidentDateTime || "N/A"}
+📝 Description: ${data.description}
+⏳ Delay Reason: ${data.delayReason || "N/A"}
+💰 Stolen Properties: ${data.stolenProperties || "N/A"}`
   }
 
   private addUserMessage(session: ChatSession, content: string) {
-    const message: ChatMessage = {
+    session.messages.push({
       id: Date.now().toString(),
       type: "user",
       content,
       timestamp: new Date().toISOString(),
-    }
-    session.messages.push(message)
+    })
   }
 
   private addBotMessage(session: ChatSession, content: string) {
-    const message: ChatMessage = {
+    session.messages.push({
       id: Date.now().toString() + "_bot",
       type: "bot",
       content,
       timestamp: new Date().toISOString(),
-      metadata: {
-        step: session.currentStep,
-        data: { ...session.collectedData },
-      },
-    }
-    session.messages.push(message)
-  }
-
-  getSession(sessionId: string): ChatSession | null {
-    return this.sessions.get(sessionId) || null
-  }
-
-  private async suggestBNSSection(data: ComplaintData): Promise<Array<{ section: string; confidence: number }>> {
-    try {
-      const { bnsSuggestionService } = await import("./bns-suggestions")
-      const suggestions = await bnsSuggestionService.suggestBNSSections(
-        data.incidentType,
-        data.description,
-        data.incidentLocation,
-      )
-
-      return suggestions
-        .filter((s) => s.confidence > 40)
-        .slice(0, 5)
-        .map((s) => ({
-          section: `${s.section.section_number} - ${s.section.title}`,
-          confidence: Math.round(s.confidence),
-        }))
-    } catch (error) {
-      console.error("Error getting BNS suggestions:", error)
-      return []
-    }
+    })
   }
 }
 

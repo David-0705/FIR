@@ -40,7 +40,11 @@ export function BNSReference() {
     section,
     isExpanded,
     onToggle,
-  }: { section: BNSSection; isExpanded: boolean; onToggle: () => void }) => (
+  }: {
+    section: BNSSection
+    isExpanded: boolean
+    onToggle: () => void
+  }) => (
     <Card className="mb-3 cursor-pointer hover:bg-slate-900/50 transition-colors" onClick={onToggle}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
@@ -63,11 +67,93 @@ export function BNSReference() {
 
       {isExpanded && (
         <CardContent className="space-y-4">
+          {/* DESCRIPTION */}
           <div>
             <p className="text-xs font-medium text-gray-400 mb-2">DESCRIPTION</p>
-            <p className="text-sm leading-relaxed text-gray-300">{section.description}</p>
+            <p className="text-sm leading-relaxed text-gray-300">
+              {section.description}
+            </p>
           </div>
+          {/* EXPLANATION */}
+         {section.explanation && section.explanation.length > 0 && (
+            <div className="space-y-2">
+           <p className="text-xs font-medium text-gray-400 mb-1">EXPLANATION</p>
+           <ul className="list-disc list-inside text-sm text-gray-300">
+           {section.explanation.map((exp, idx) => (
+        <li key={idx}>{exp}</li>
+      ))}
+    </ul>
+  </div>
+)}
 
+{/* ILLUSTRATIONS */}
+{section.illustration && section.illustration.length > 0 && (
+  <div className="space-y-2">
+    <p className="text-xs font-medium text-gray-400 mb-1">ILLUSTRATIONS</p>
+    <ul className="list-disc list-inside text-sm text-gray-300">
+      {section.illustration.map((ill, idx) => (
+        <li key={idx}>{ill}</li>
+      ))}
+    </ul>
+  </div>
+)}
+      
+          
+
+          {/* SUB SECTIONS */}
+          {section.sub_sections && section.sub_sections.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-gray-400">SUB SECTIONS</p>
+
+              {section.sub_sections.map((ss, idx) => (
+                <div
+                  key={idx}
+                  className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 space-y-2"
+                >
+                  {ss.sub_section && (
+                    <p className="text-sm font-semibold text-blue-300">
+                      {ss.sub_section}
+                    </p>
+                  )}
+
+                  {ss.description && (
+                    <p className="text-sm text-gray-300">
+                      {ss.description}
+                    </p>
+                  )}
+
+                  {ss.punishment && (
+                    <p className="text-sm bg-red-900/30 p-2 rounded border border-red-900 text-red-200">
+                      {ss.punishment}
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-3 text-xs text-gray-300">
+                    {ss.cognizable && (
+                      <div>
+                        <span className="text-gray-500">Cognizable</span>
+                        <div className="font-semibold">{ss.cognizable}</div>
+                      </div>
+                    )}
+                    {ss.bailable && (
+                      <div>
+                        <span className="text-gray-500">Bailable</span>
+                        <div className="font-semibold">{ss.bailable}</div>
+                      </div>
+                    )}
+                    {ss.court && (
+                      <div>
+                        <span className="text-gray-500">Court</span>
+                        <div className="font-semibold">{ss.court}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* SECTION LEVEL PUNISHMENT */}
           {section.punishment && (
             <div>
               <p className="text-xs font-medium text-gray-400 mb-2">PUNISHMENT</p>
@@ -77,6 +163,7 @@ export function BNSReference() {
             </div>
           )}
 
+          {/* KEYWORDS */}
           {section.keywords && section.keywords.length > 0 && (
             <div>
               <p className="text-xs font-medium text-gray-400 mb-2">KEYWORDS</p>
@@ -90,12 +177,15 @@ export function BNSReference() {
             </div>
           )}
 
-          {section.cognizable && (
+          {/* METADATA */}
+          {(section.cognizable || section.bailable || section.court) && (
             <div className="grid grid-cols-3 gap-3 pt-2 border-t border-gray-700">
-              <div>
-                <p className="text-xs text-gray-500">Cognizable</p>
-                <p className="text-sm font-semibold text-gray-300">{section.cognizable}</p>
-              </div>
+              {section.cognizable && (
+                <div>
+                  <p className="text-xs text-gray-500">Cognizable</p>
+                  <p className="text-sm font-semibold text-gray-300">{section.cognizable}</p>
+                </div>
+              )}
               {section.bailable && (
                 <div>
                   <p className="text-xs text-gray-500">Bailable</p>
@@ -117,163 +207,71 @@ export function BNSReference() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">BNS Reference</h2>
-          <p className="text-gray-400">Browse and search all Bharatiya Nyaya Sanhita sections</p>
-        </div>
+      <div>
+        <h2 className="text-2xl font-bold">BNS Reference</h2>
+        <p className="text-gray-400">Browse and search all Bharatiya Nyaya Sanhita sections</p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="search" className="flex items-center gap-2">
-            <Search className="h-4 w-4" />
-            <span>Search</span>
-          </TabsTrigger>
-          <TabsTrigger value="browse" className="flex items-center gap-2">
-            <Filter className="h-4 w-4" />
-            <span>By Category</span>
-          </TabsTrigger>
-          <TabsTrigger value="all" className="flex items-center gap-2">
-            <BookOpen className="h-4 w-4" />
-            <span>All Sections</span>
-          </TabsTrigger>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid grid-cols-3">
+          <TabsTrigger value="search"><Search className="h-4 w-4" /> Search</TabsTrigger>
+          <TabsTrigger value="browse"><Filter className="h-4 w-4" /> By Category</TabsTrigger>
+          <TabsTrigger value="all"><BookOpen className="h-4 w-4" /> All</TabsTrigger>
         </TabsList>
 
-        {/* Search Tab */}
-        <TabsContent value="search" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Search className="h-5 w-5" />
-                Search BNS Sections
-              </CardTitle>
-              <CardDescription>Search by section number, title, description, keywords, or punishment</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <Input
-                  placeholder="Enter section number (e.g., 103), keyword (e.g., murder, theft), or title..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-slate-900 border-slate-700"
-                />
-
-                {searchResults.length > 0 && (
-                  <ScrollArea className="h-96">
-                    <div className="space-y-2 pr-4">
-                      {searchResults.map((section) => (
-                        <BNSCard
-                          key={section.section_number}
-                          section={section}
-                          isExpanded={expandedSection === section.section_number}
-                          onToggle={() =>
-                            setExpandedSection(
-                              expandedSection === section.section_number ? null : section.section_number,
-                            )
-                          }
-                        />
-                      ))}
-                    </div>
-                  </ScrollArea>
-                )}
-
-                {searchQuery && searchResults.length === 0 && (
-                  <div className="text-center py-8 text-gray-400">No sections found matching "{searchQuery}"</div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="search">
+          <Input
+            placeholder="Search BNS sections..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <ScrollArea className="h-96 mt-4">
+            {searchResults.map((s) => (
+              <BNSCard
+                key={s.section_number}
+                section={s}
+                isExpanded={expandedSection === s.section_number}
+                onToggle={() =>
+                  setExpandedSection(expandedSection === s.section_number ? null : s.section_number)
+                }
+              />
+            ))}
+          </ScrollArea>
         </TabsContent>
 
-        {/* Browse by Category Tab */}
-        <TabsContent value="browse" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
-                Browse by Category
-              </CardTitle>
-              <CardDescription>Explore BNS sections organized by legal categories</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant={selectedCategory === null ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSelectedCategory(null)}
-                  >
-                    All Categories
-                  </Button>
-                  {categories.map((category) => (
-                    <Button
-                      key={category}
-                      variant={selectedCategory === category ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedCategory(category)}
-                    >
-                      {category}
-                    </Button>
-                  ))}
-                </div>
-
-                {selectedCategory && categoryResults.length > 0 && (
-                  <ScrollArea className="h-96">
-                    <div className="space-y-2 pr-4">
-                      {categoryResults.map((section) => (
-                        <BNSCard
-                          key={section.section_number}
-                          section={section}
-                          isExpanded={expandedSection === section.section_number}
-                          onToggle={() =>
-                            setExpandedSection(
-                              expandedSection === section.section_number ? null : section.section_number,
-                            )
-                          }
-                        />
-                      ))}
-                    </div>
-                  </ScrollArea>
-                )}
-
-                {selectedCategory === null && (
-                  <div className="text-center py-8 text-gray-400">Select a category to view sections</div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="browse">
+          <div className="flex flex-wrap gap-2 mb-4">
+            {categories.map((c) => (
+              <Button key={c} onClick={() => setSelectedCategory(c)}>{c}</Button>
+            ))}
+          </div>
+          <ScrollArea className="h-96">
+            {categoryResults.map((s) => (
+              <BNSCard
+                key={s.section_number}
+                section={s}
+                isExpanded={expandedSection === s.section_number}
+                onToggle={() =>
+                  setExpandedSection(expandedSection === s.section_number ? null : s.section_number)
+                }
+              />
+            ))}
+          </ScrollArea>
         </TabsContent>
 
-        {/* All Sections Tab */}
-        <TabsContent value="all" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5" />
-                All BNS Sections
-              </CardTitle>
-              <CardDescription>
-                Complete list of {allSections.length}+ Bharatiya Nyaya Sanhita sections in ascending order
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-96">
-                <div className="space-y-2 pr-4">
-                  {allSections.map((section) => (
-                    <BNSCard
-                      key={section.section_number}
-                      section={section}
-                      isExpanded={expandedSection === section.section_number}
-                      onToggle={() =>
-                        setExpandedSection(expandedSection === section.section_number ? null : section.section_number)
-                      }
-                    />
-                  ))}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
+        <TabsContent value="all">
+          <ScrollArea className="h-96">
+            {allSections.map((s) => (
+              <BNSCard
+                key={s.section_number}
+                section={s}
+                isExpanded={expandedSection === s.section_number}
+                onToggle={() =>
+                  setExpandedSection(expandedSection === s.section_number ? null : s.section_number)
+                }
+              />
+            ))}
+          </ScrollArea>
         </TabsContent>
       </Tabs>
     </div>

@@ -132,7 +132,7 @@ export function FIRDetails({ fir, onBack, onEdit }: FIRDetailsProps) {
             </CardContent>
           </Card>
 
-          <Card className="border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30">
+          <Card className="border-blue-200 bg-transparent dark:border-blue-900">
             <CardHeader>
               <CardTitle className="flex items-center">
                 <Scale className="h-5 w-5 mr-2 text-blue-600 dark:text-blue-400" />
@@ -158,9 +158,9 @@ export function FIRDetails({ fir, onBack, onEdit }: FIRDetailsProps) {
                     {fir.bnsSections.map((section) => (
                       <div
                         key={section}
-                        className="p-3 bg-white dark:bg-gray-800 border-l-4 border-blue-400 rounded flex items-center justify-between hover:bg-blue-100 dark:hover:bg-blue-900/20 transition"
+                        className="p-3 bg-white dark:bg-blue-800 border-l-4 border-blue-400 rounded flex items-center justify-between hover:bg-blue-100 dark:hover:bg-blue-900/20 transition"
                       >
-                        <span className="font-medium">{section}</span>
+                        <span className="font-bold text-lg text-blue-600 dark:text-blue-400">{section}</span>
                         <Badge variant="secondary" className="text-xs">
                           Applicable
                         </Badge>

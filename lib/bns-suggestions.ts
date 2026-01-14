@@ -1,5 +1,27 @@
-import { searchBNSSections, getAllBNSSectionsSorted, type BNSSection } from "./bns-data"
+// lib/bns-suggestions.ts
 
+import { getAllBNSSectionsSorted, type BNSSection } from "./bns-data"
+
+// ---------------- INCIDENT KEYWORDS ----------------
+const INCIDENT_KEYWORDS_MAP: Record<string, string[]> = {
+  Theft: ["theft", "steal", "rob"],
+  Robbery: ["robbery", "armed robbery", "robbed"],
+  Burglary: ["burglary", "break-in", "house break"],
+  Assault: ["assault", "attack", "hit", "physical harm"],
+  "Domestic Violence": ["domestic violence", "wife abuse", "family violence"],
+  Fraud: ["fraud", "cheating", "scam"],
+  Cybercrime: ["cybercrime", "hacking", "phishing"],
+  "Drug Offense": ["drug", "narcotics", "possession", "smuggling"],
+  "Traffic Violation": ["traffic", "drunk driving", "rash driving"],
+  Vandalism: ["vandalism", "damage", "destruction"],
+  "Missing Person": ["missing", "lost", "kidnapped person"],
+  Rape: ["rape", "sexual assault", "molestation"],
+  Kidnap: ["kidnap", "abduction", "forcibly taken"],
+  "Child Marriage": ["child marriage", "underage marriage"],
+  Other: [],
+}
+
+// ---------------- TYPES ----------------
 export interface BNSSuggestion {
   section: BNSSection
   confidence: number
@@ -7,19 +29,24 @@ export interface BNSSuggestion {
   matchedKeywords: string[]
 }
 
+// ---------------- SERVICE ----------------
 export class BNSSuggestionService {
-  async suggestBNSSections(incidentType: string, description: string, location?: string): Promise<BNSSuggestion[]> {
-    // Simulate AI processing delay
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+  async suggestBNSSections(
+    incidentType: string,
+    description: string,
+    location?: string
+  ): Promise<BNSSuggestion[]> {
+    // Simulate processing delay
+    await new Promise((resolve) => setTimeout(resolve, 500))
 
     const text = `${incidentType} ${description} ${location || ""}`.toLowerCase()
     const suggestions: BNSSuggestion[] = []
     const allSections = getAllBNSSectionsSorted()
 
     for (const section of allSections) {
-      const analysis = this.analyzeComplaintContext(text, section)
+      const analysis = this.analyzeComplaintContext(incidentType, text, section)
 
-      if (analysis.confidence > 15) {
+      if (analysis.confidence > 10) {
         suggestions.push({
           section,
           confidence: Math.round(analysis.confidence),
@@ -29,118 +56,53 @@ export class BNSSuggestionService {
       }
     }
 
-    // Sort by confidence and return top 5-10 suggestions
-    return suggestions.sort((a, b) => b.confidence - a.confidence).slice(0, 10)
+    // Return top 5 suggestions
+    return suggestions.sort((a, b) => b.confidence - a.confidence).slice(0, 5)
   }
 
   private analyzeComplaintContext(
+    incidentType: string,
     text: string,
-    section: BNSSection,
-  ): {
-    confidence: number
-    reasoning: string
-    matchedKeywords: string[]
-  } {
+    section: BNSSection
+  ): { confidence: number; reasoning: string; matchedKeywords: string[] } {
     const matchedKeywords: string[] = []
+    const lowerText = text.toLowerCase()
     let confidence = 0
 
-    // 1. Direct keyword matching
-    if (section.keywords) {
-      let keywordMatches = 0
-      for (const keyword of section.keywords) {
-        if (text.includes(keyword.toLowerCase())) {
-          matchedKeywords.push(keyword)
-          keywordMatches++
-        }
-      }
-
-      const keywordDensity = section.keywords.length > 0 ? keywordMatches / section.keywords.length : 0
-      confidence += keywordDensity * 40
-    }
-
-    // 2. Title and description matching
-    if (
-      section.title
-        .toLowerCase()
-        .split(" ")
-        .some((word) => text.includes(word))
-    ) {
-      confidence += 15
-    }
-
-    if (
-      section.description
-        .toLowerCase()
-        .split(" ")
-        .some((word) => text.includes(word))
-    ) {
-      confidence += 10
-    }
-
-    // 3. Severity analysis based on punishment
-    if (section.punishment) {
-      const punishmentLower = section.punishment.toLowerCase()
-
-      if (text.includes("death") && punishmentLower.includes("death")) {
-        confidence += 25
-      }
-      if (text.includes("grievous") && punishmentLower.includes("grievous")) {
-        confidence += 20
-      }
-      if (text.includes("murder") && punishmentLower.includes("life")) {
-        confidence += 20
-      }
-      if (text.includes("theft") && punishmentLower.includes("theft")) {
-        confidence += 15
-      }
-      if (text.includes("robbery") && punishmentLower.includes("robbery")) {
-        confidence += 20
+    // 1️⃣ Incident keywords matching (strong boost)
+    const incidentKeywords = INCIDENT_KEYWORDS_MAP[incidentType] || []
+    for (const kw of incidentKeywords) {
+      if (
+        lowerText.includes(kw.toLowerCase()) &&
+        (section.title.toLowerCase().includes(kw.toLowerCase()) ||
+          section.description.toLowerCase().includes(kw.toLowerCase()))
+      ) {
+        confidence += 80 // strong boost
+        matchedKeywords.push(kw)
       }
     }
 
-    // Cap confidence at 100
+    // 2️⃣ Only if no incident keywords matched, do generic word matching (low weight)
+    if (matchedKeywords.length === 0) {
+      const titleWords = section.title.toLowerCase().split(/\s+/)
+      const matchedTitle = titleWords.filter((word) => lowerText.includes(word))
+      confidence += (matchedTitle.length / titleWords.length) * 20
+
+      const descWords = section.description.toLowerCase().split(/\s+/)
+      const matchedDesc = descWords.filter((word) => lowerText.includes(word))
+      confidence += (matchedDesc.length / descWords.length) * 10
+    }
+
     confidence = Math.min(confidence, 100)
 
-    const reasoning = this.generateReasoning(section, matchedKeywords, confidence)
+    const reasoning =
+      matchedKeywords.length > 0
+        ? `Matched incident keywords: ${matchedKeywords.join(", ")}`
+        : `Matched words in title/description.`
 
     return { confidence, reasoning, matchedKeywords }
-  }
-
-  private generateReasoning(section: BNSSection, matchedKeywords: string[], confidence: number): string {
-    let reasoning = ""
-
-    if (confidence > 80) {
-      reasoning = `High confidence match (${confidence}%) - `
-    } else if (confidence > 60) {
-      reasoning = `Strong match (${confidence}%) - `
-    } else if (confidence > 40) {
-      reasoning = `Moderate match (${confidence}%) - `
-    } else {
-      reasoning = `Possible match (${confidence}%) - `
-    }
-
-    const reasons = []
-
-    if (matchedKeywords.length > 0) {
-      reasons.push(`keywords: ${matchedKeywords.slice(0, 3).join(", ")}`)
-    }
-
-    if (section.punishment) {
-      reasons.push(`punishment applicable: ${section.punishment.split(",")[0]}`)
-    }
-
-    if (reasons.length > 0) {
-      reasoning += reasons.join(", ") + "."
-    } else {
-      reasoning += "based on incident analysis."
-    }
-
-    return reasoning
-  }
-
-  searchBNSSections(query: string): BNSSection[] {
-    return searchBNSSections(query)
   }
 }
 
 export const bnsSuggestionService = new BNSSuggestionService()
+  
